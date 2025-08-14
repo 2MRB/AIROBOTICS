@@ -310,7 +310,7 @@ const AdminDashboard: React.FC = () => {
             <div className="flex items-center space-x-reverse space-x-4">
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-600">
-                  {stats?.totalcomplainants || 0}
+                  {activeTab === "complainants" ? complainants.length : (stats?.totalcomplainants || 0)}
                 </div>
                 <div className="text-sm text-gray-600">إجمالي الشكاوى</div>
               </div>
@@ -699,11 +699,11 @@ const AdminDashboard: React.FC = () => {
                             #{complaint.id.slice(-6)}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {complaint.complainant?.fullName || "غير محدد"}
+                            {complaint.fullName || "غير محدد"}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {complaint.type?.icon}{" "}
-                            {complaint.type?.name || "غير محدد"}
+                            {complaint.type}{" "}
+                            {complaint.type || "غير محدد"}
                           </td>
                           <td className="px-6 py-4 text-sm text-gray-900">
                             {complaint.address || "غير محدد"}
@@ -1237,22 +1237,73 @@ const AdminDashboard: React.FC = () => {
                   </select>
                 </div>
 
-                {!selectedUser && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      كلمة المرور
-                    </label>
-                    <input
-                      type="password"
-                      value={userForm.password}
-                      onChange={(e) =>
-                        setUserForm({ ...userForm, password: e.target.value })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="أدخل كلمة المرور"
-                    />
-                  </div>
-                )}
+               {!selectedUser && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  كلمة المرور
+                </label>
+                <input
+                  type="password"
+                  className="border rounded px-3 py-2 w-full"
+                />
+                <div className="overflow-x-auto mt-4">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2">رقم الشكوى</th>
+                        <th className="px-4 py-2">المواطن</th>
+                        <th className="px-4 py-2">نوع الشكوى</th>
+                        <th className="px-4 py-2">العنوان</th>
+                        <th className="px-4 py-2">الحالة</th>
+                        <th className="px-4 py-2">التاريخ</th>
+                        <th className="px-4 py-2">الإجراءات</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {complainants.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="text-center py-4 text-gray-500">
+                            لا توجد بيانات
+                          </td>
+                        </tr>
+                      ) : (
+                        complainants.map((complaint: any) => (
+                          <tr key={complaint.id}>
+                            <td className="px-4 py-2 font-mono">
+                              #{complaint.id?.slice(0, 6) || "غير محدد"}
+                            </td>
+                            <td className="px-4 py-2">
+                              {complaint.citizenName || "غير محدد"}
+                            </td>
+                            <td className="px-4 py-2">
+                              {complaint.typeName || "غير محدد"}
+                            </td>
+                            <td className="px-4 py-2">
+                              {complaint.title || "غير محدد"}
+                            </td>
+                            <td className="px-4 py-2">{complaint.status || "--"}</td>
+                            <td className="px-4 py-2">
+                              {complaint.createdAt
+                                ? new Date(complaint.createdAt).toLocaleDateString()
+                                : "غير محدد"}
+                            </td>
+                            <td className="px-4 py-2">
+                              <button
+                                className="text-blue-600 hover:underline"
+                                onClick={() => handleViewComplaintDetails(complaint)}
+                              >
+                                عرض التفاصيل
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
               </div>
 
               <div className="px-6 py-4 border-t border-gray-200 flex space-x-reverse space-x-3">
@@ -1403,7 +1454,7 @@ const AdminDashboard: React.FC = () => {
                           المواطن:
                         </span>
                         <span className="text-sm text-gray-900 mr-2">
-                          {selectedComplaint.complainant?.fullName ||
+                          {selectedComplaint.fullName ||
                             "غير محدد"}
                         </span>
                       </div>
@@ -1412,8 +1463,8 @@ const AdminDashboard: React.FC = () => {
                           نوع الشكوى:
                         </span>
                         <span className="text-sm text-gray-900 mr-2">
-                          {selectedComplaint.type?.icon}{" "}
-                          {selectedComplaint.type?.name || "غير محدد"}
+                          {selectedComplaint.type}{" "}
+                          {selectedComplaint.type || "غير محدد"}
                         </span>
                       </div>
                       <div>
