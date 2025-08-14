@@ -121,6 +121,7 @@ const AdminDashboard: React.FC = () => {
       const { supabase } = await import('../utils/supabaseClient');
       if (activeTab === "overview") {
         // Fetch stats from supabase
+        await fetchcomplainants();
         const { data, error } = await supabase.rpc('get_dashboard_stats');
         if (error) throw error;
         setStats(data || null);
