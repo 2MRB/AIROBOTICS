@@ -7,6 +7,7 @@ import {
   Clock,
   MessageSquare,
 } from "lucide-react";
+import { supabase } from "../utils/supabaseClient"; // Import Supabase client
 
 interface Notification {
   id: string;
@@ -37,21 +38,16 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
     }
   }, [isOpen]);
 
+  // Fetch notifications from Supabase
   const fetchNotifications = async () => {
+    setLoading(true);
     try {
-      const token = localStorage.getItem("authToken");
-      if (!token) return;
-
-      const response = await fetch("http://localhost:3001/api/notifications", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setNotifications(data.notifications);
-      }
+      const { data, error } = await supabase
+        .from("notifications")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setNotifications(data || []);
     } catch (error) {
       console.error("Error fetching notifications:", error);
     } finally {
@@ -59,53 +55,35 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({
     }
   };
 
+  // Mark a single notification as read in Supabase
   const markAsRead = async (notificationId: string) => {
     try {
-      const token = localStorage.getItem("authToken");
-      if (!token) return;
-
-      const response = await fetch(
-        `http://localhost:3001/api/notifications/${notificationId}/read`,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+      const { error } = await supabase
+        .from("notifications")
+        .update({ read: true })
+        .eq("id", notificationId);
+      if (error) throw error;
+      setNotifications((prev) =>
+        prev.map((notif) =>
+          notif.id === notificationId ? { ...notif, read: true } : notif
+        )
       );
-
-      if (response.ok) {
-        setNotifications((prev) =>
-          prev.map((notif) =>
-            notif.id === notificationId ? { ...notif, read: true } : notif
-          )
-        );
-      }
     } catch (error) {
       console.error("Error marking notification as read:", error);
     }
   };
 
+  // Mark all notifications as read in Supabase
   const markAllAsRead = async () => {
     try {
-      const token = localStorage.getItem("authToken");
-      if (!token) return;
-
-      const response = await fetch(
-        "http://localhost:3001/api/notifications/read-all",
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+      const { error } = await supabase
+        .from("notifications")
+        .update({ read: true })
+        .eq("read", false);
+      if (error) throw error;
+      setNotifications((prev) =>
+        prev.map((notif) => ({ ...notif, read: true }))
       );
-
-      if (response.ok) {
-        setNotifications((prev) =>
-          prev.map((notif) => ({ ...notif, read: true }))
-        );
-      }
     } catch (error) {
       console.error("Error marking all notifications as read:", error);
     }

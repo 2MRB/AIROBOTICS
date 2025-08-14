@@ -16,6 +16,7 @@ import {
   MapPin,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { supabase } from "../utils/supabaseClient"; // Import Supabase client
 
 interface Complaint {
   id: string;
@@ -46,7 +47,7 @@ interface Complaint {
 
 const EmployeeDashboard: React.FC = () => {
   const { user } = useAuth();
-  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [complainants, setcomplainants] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"new" | "in-progress">("new");
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(
@@ -69,28 +70,39 @@ const EmployeeDashboard: React.FC = () => {
 
   useEffect(() => {
     if (user) {
-      fetchComplaints();
+      fetchcomplainants();
     }
+    // eslint-disable-next-line
   }, [user, activeTab]);
 
-  const fetchComplaints = async () => {
+  // Fetch complainants from Supabase
+  const fetchcomplainants = async () => {
+    setLoading(true);
     try {
-      const token = localStorage.getItem("authToken");
-      if (!token) return;
+      let query = supabase
+        .from("complainants")
+        .select(
+          `
+            *,
+            complainant:complainant_id(fullName, phone),
+            type:complaint_type(name, icon),
+            updates(id, message, createdAt, createdBy),
+            internalNotes
+          `
+        );
 
-      const response = await fetch(
-        `http://localhost:3001/api/complaints/employee?tab=${activeTab}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (response.ok) {
-        const result = await response.json();
-        setComplaints(result.complaints);
+      // Tab filter
+      if (activeTab === "new") {
+        query = query.eq("status", "NEW");
+      } else if (activeTab === "in-progress") {
+        query = query.in("status", ["UNDER_REVIEW", "IN_PROGRESS"]);
       }
+
+      // You can add more filters here if needed
+
+      const { data, error } = await query.order("createdAt", { ascending: false });
+      if (error) throw error;
+      setcomplainants(data || []);
     } catch (error) {
       console.error("Error fetching complaints:", error);
     } finally {
@@ -98,151 +110,64 @@ const EmployeeDashboard: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "NEW":
-        return "bg-blue-100 text-blue-800";
-      case "UNDER_REVIEW":
-        return "bg-yellow-100 text-yellow-800";
-      case "IN_PROGRESS":
-        return "bg-purple-100 text-purple-800";
-      case "RESOLVED":
-        return "bg-green-100 text-green-800";
-      case "REJECTED":
-        return "bg-red-100 text-red-800";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case "NEW":
-        return "جديد";
-      case "UNDER_REVIEW":
-        return "قيد المراجعة";
-      case "IN_PROGRESS":
-        return "جار المعالجة";
-      case "RESOLVED":
-        return "تم الحل";
-      case "REJECTED":
-        return "مرفوض";
-      default:
-        return status;
-    }
-  };
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case "HIGH":
-        return "bg-red-100 text-red-800";
-      case "MEDIUM":
-        return "bg-yellow-100 text-yellow-800";
-      case "LOW":
-        return "bg-green-100 text-green-800";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
-  };
-
-  const getPriorityLabel = (priority: string) => {
-    switch (priority) {
-      case "HIGH":
-        return "عالية";
-      case "MEDIUM":
-        return "متوسطة";
-      case "LOW":
-        return "منخفضة";
-      default:
-        return priority;
-    }
-  };
-
-  const filteredComplaints = complaints.filter((complaint) => {
-    const matchesSearch =
-      complaint.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      complaint.complainant.fullName
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase());
-
-    const matchesType = !filters.type || complaint.type.name === filters.type;
-    const matchesStatus =
-      !filters.status || complaint.status === filters.status;
-    const matchesPriority =
-      !filters.priority || complaint.priority === filters.priority;
-
-    const matchesDate =
-      (!filters.dateFrom ||
-        new Date(complaint.createdAt) >= new Date(filters.dateFrom)) &&
-      (!filters.dateTo ||
-        new Date(complaint.createdAt) <= new Date(filters.dateTo));
-
-    return (
-      matchesSearch &&
-      matchesType &&
-      matchesStatus &&
-      matchesPriority &&
-      matchesDate
-    );
-  });
-
+  // Update complaint status/message/internalNote in Supabase
   const handleUpdateComplaint = async () => {
     if (!selectedComplaint || !updateForm.status) return;
 
+    setLoading(true);
     try {
-      const token = localStorage.getItem("authToken");
-      if (!token) return;
-
-      const response = await fetch(
-        `http://localhost:3001/api/complaints/${selectedComplaint.id}/update`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            status: updateForm.status,
-            message: updateForm.message,
-            internalNote: updateForm.internalNote,
+      // Update complaint status
+      const { error: updateError } = await supabase
+        .from("complainants")
+        .update({
+          status: updateForm.status,
+          ...(updateForm.internalNote && {
+            internalNotes: [
+              ...(selectedComplaint.internalNotes || []),
+              updateForm.internalNote,
+            ],
           }),
-        }
-      );
+        })
+        .eq("id", selectedComplaint.id);
 
-      if (response.ok) {
-        setShowUpdateModal(false);
-        setUpdateForm({ status: "", message: "", internalNote: "" });
-        fetchComplaints();
+      if (updateError) throw updateError;
+
+      // Add update message for citizen (if provided)
+      if (updateForm.message) {
+        await supabase.from("complaint_updates").insert([
+          {
+            complaint_id: selectedComplaint.id,
+            message: updateForm.message,
+            createdBy: user?.fullName || "موظف",
+          },
+        ]);
       }
+
+      setShowUpdateModal(false);
+      setUpdateForm({ status: "", message: "", internalNote: "" });
+      fetchcomplainants();
     } catch (error) {
       console.error("Error updating complaint:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Assign complaint to self in Supabase
   const assignToSelf = async (complaintId: string) => {
+    setLoading(true);
     try {
-      const token = localStorage.getItem("authToken");
-      if (!token) return;
+      const { error } = await supabase
+        .from("complainants")
+        .update({ assignedTo: user?.id })
+        .eq("id", complaintId);
 
-      const response = await fetch(
-        `http://localhost:3001/api/complaints/${complaintId}/assign`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            assignedTo: user?.id,
-          }),
-        }
-      );
-
-      if (response.ok) {
-        fetchComplaints();
-      }
+      if (error) throw error;
+      fetchcomplainants();
     } catch (error) {
       console.error("Error assigning complaint:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -272,19 +197,19 @@ const EmployeeDashboard: React.FC = () => {
             <div className="flex items-center space-x-reverse space-x-4">
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-600">
-                  {complaints.filter((c) => c.status === "NEW").length}
+                  {complainants.filter((c) => c.status === "NEW").length}
                 </div>
                 <div className="text-sm text-gray-600">شكاوى جديدة</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-purple-600">
-                  {complaints.filter((c) => c.status === "IN_PROGRESS").length}
+                  {complainants.filter((c) => c.status === "IN_PROGRESS").length}
                 </div>
                 <div className="text-sm text-gray-600">قيد المعالجة</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-green-600">
-                  {complaints.filter((c) => c.status === "RESOLVED").length}
+                  {complainants.filter((c) => c.status === "RESOLVED").length}
                 </div>
                 <div className="text-sm text-gray-600">تم حلها</div>
               </div>
@@ -305,7 +230,7 @@ const EmployeeDashboard: React.FC = () => {
                 }`}
               >
                 الشكاوى الجديدة (
-                {complaints.filter((c) => c.status === "NEW").length})
+                {complainants.filter((c) => c.status === "NEW").length})
               </button>
               <button
                 onClick={() => setActiveTab("in-progress")}
@@ -317,7 +242,7 @@ const EmployeeDashboard: React.FC = () => {
               >
                 قيد المعالجة (
                 {
-                  complaints.filter((c) =>
+                  complainants.filter((c) =>
                     ["UNDER_REVIEW", "IN_PROGRESS"].includes(c.status)
                   ).length
                 }
@@ -426,15 +351,15 @@ const EmployeeDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Complaints List */}
+        {/* complainants List */}
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-xl font-semibold text-gray-900">
-              الشكاوى ({filteredComplaints.length})
+              الشكاوى ({filteredcomplainants.length})
             </h2>
           </div>
 
-          {filteredComplaints.length === 0 ? (
+          {filteredcomplainants.length === 0 ? (
             <div className="text-center py-12">
               <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">
@@ -475,7 +400,7 @@ const EmployeeDashboard: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredComplaints.map((complaint) => (
+                  {filteredcomplainants.map((complaint) => (
                     <tr key={complaint.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
                         <div>

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Phone, User, Shield, ArrowRight } from "lucide-react";
+// ...existing code...
 
 interface CitizenLoginFormProps {
   onNavigate: (page: string) => void;
@@ -40,31 +41,17 @@ const CitizenLoginForm: React.FC<CitizenLoginFormProps> = ({ onNavigate }) => {
 
     setLoading(true);
     try {
-      const response = await fetch(
-        "http://localhost:3001/api/auth/citizen/login",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            fullName: formData.fullName,
-            nationalId: formData.nationalId,
-            phone: formData.phone,
-          }),
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        localStorage.setItem("authToken", data.token);
-        localStorage.setItem("complainant", JSON.stringify(data.complainant));
-        localStorage.setItem("userType", "complainant");
-        window.location.reload();
-      } else {
-        const data = await response.json();
-        setError(data.message || "بيانات غير صحيحة");
-      }
+      // No auth verification, just store dummy token and complainant info
+      const dummyComplainant = {
+        fullName: formData.fullName,
+        nationalId: formData.nationalId,
+        phone: formData.phone,
+        id: formData.nationalId, // Use nationalId as id for demo
+      };
+      localStorage.setItem("authToken", "supabase_anon");
+      localStorage.setItem("complainant", JSON.stringify(dummyComplainant));
+      localStorage.setItem("userType", "complainant");
+      window.location.reload();
     } catch (error) {
       setError("حدث خطأ في الاتصال");
     } finally {

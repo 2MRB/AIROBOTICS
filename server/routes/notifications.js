@@ -1,10 +1,12 @@
 // NEW FUNCTIONALITY: نظام الإشعارات - تم إضافته في الإصدار 2.0.0
 const express = require("express");
-const { PrismaClient } = require("@prisma/client");
+const { createClient } = require('@supabase/supabase-js');
 const { authenticateToken } = require("../middleware/auth");
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const supabaseUrl = 'https://gcfeqklskmwbiwjkdouu.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjZmVxa2xza213Yml3amtkb3V1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxMzA2NTQsImV4cCI6MjA3MDcwNjY1NH0.ZW9_4Xo9D5tK2mEHl2uMTdiCOUIUkuzp88YYAhFyr6Y';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Get notifications for the authenticated user
 router.get("/", authenticateToken, async (req, res) => {
@@ -13,33 +15,39 @@ router.get("/", authenticateToken, async (req, res) => {
 
     if (req.user.role === "CITIZEN") {
       // For citizens, get notifications related to their complaints
-      const complaints = await prisma.complaint.findMany({
-        where: { complainantId: req.user.id },
-        select: { id: true },
-      });
-
+      const { data: complaints, error: complaintsError } = await supabase
+        .from('complainants')
+        .select('id')
+        .eq('complainantId', req.user.id);
+      if (complaintsError) {
+        return res.status(500).json({ error: 'خطأ في جلب الشكاوى' });
+      }
       const complaintIds = complaints.map((c) => c.id);
-
-      notifications = await prisma.complaintLog.findMany({
-        where: {
-          complaintId: { in: complaintIds },
-          userId: { not: req.user.id }, // Exclude logs created by the citizen
-        },
-        include: {
-          complaint: {
-            select: {
-              title: true,
-            },
-          },
-          user: {
-            select: {
-              fullName: true,
-            },
-          },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 50, // Limit to last 50 notifications
-      });
+      const { data: logs, error: logsError } = await supabase
+        .from('complaintLog')
+        .select('*, complaint(title), user(fullName)')
+        .in('complaintId', complaintIds)
+        .neq('userId', req.user.id)
+        .order('createdAt', { ascending: false })
+        .limit(50);
+      if (logsError) {
+        return res.status(500).json({ error: 'خطأ في جلب الإشعارات' });
+      }
+      notifications = logs.map((log) => ({
+        id: log.id,
+        type: getNotificationType(log.action),
+        title: getNotificationTitle(log.action),
+        message: getNotificationMessage(
+          log.action,
+          log.oldStatus,
+          log.newStatus,
+          log.notes
+        ),
+        complaintId: log.complaintId,
+        complaintTitle: log.complaint?.title,
+        createdAt: log.createdAt,
+        read: false,
+      }));
 
       // Transform logs to notification format
       notifications = notifications.map((log) => ({
@@ -59,22 +67,15 @@ router.get("/", authenticateToken, async (req, res) => {
       }));
     } else {
       // For employees and admins, get notifications about new complaints and updates
-      const recentComplaints = await prisma.complaint.findMany({
-        where: {
-          OR: [{ status: "NEW" }, { assignedToId: req.user.id }],
-        },
-        include: {
-          type: true,
-          complainant: {
-            select: {
-              fullName: true,
-            },
-          },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 20,
-      });
-
+      const { data: recentComplaints, error: recentError } = await supabase
+        .from('complainants')
+        .select('*, type(*), complainants(fullName)')
+        .or('status.eq.NEW,assignedToId.eq.' + req.user.id)
+        .order('createdAt', { ascending: false })
+        .limit(20);
+      if (recentError) {
+        return res.status(500).json({ error: 'خطأ في جلب الشكاوى الحديثة' });
+      }
       notifications = recentComplaints.map((complaint) => ({
         id: `complaint-${complaint.id}`,
         type: complaint.status === "NEW" ? "new_complaint" : "status_update",

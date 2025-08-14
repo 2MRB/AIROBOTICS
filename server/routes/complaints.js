@@ -3,7 +3,7 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const { body, validationResult, query } = require("express-validator");
-const { PrismaClient } = require("@prisma/client");
+const { createClient } = require('@supabase/supabase-js');
 const { authenticateToken, requireRole } = require("../middleware/auth");
 const {
   sendComplaintNotification,
@@ -12,7 +12,9 @@ const {
 const XLSX = require("xlsx");
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const supabaseUrl = 'https://gcfeqklskmwbiwjkdouu.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjZmVxa2xza213Yml3amtkb3V1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxMzA2NTQsImV4cCI6MjA3MDcwNjY1NH0.ZW9_4Xo9D5tK2mEHl2uMTdiCOUIUkuzp88YYAhFyr6Y';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -85,38 +87,47 @@ router.post(
       } = req.body;
 
       // Check if complainant exists, create if not
-      let complainant = await prisma.complainant.findFirst({
-        where: {
-          OR: [{ phone }, { nationalId }],
-        },
-      });
-
+      let { data: complainant, error: findError } = await supabase
+        .from('complainant')
+        .select('*')
+        .or(`phone.eq.${phone},nationalId.eq.${nationalId}`)
+        .single();
+      if (findError && findError.code !== 'PGRST116') {
+        return res.status(500).json({ error: 'خطأ في البحث عن المواطن' });
+      }
       if (!complainant) {
-        complainant = await prisma.complainant.create({
-          data: {
+        const { data: newComplainant, error: createError } = await supabase
+          .from('complainant')
+          .insert({
             fullName,
             phone,
             nationalId,
             email: email || null,
-          },
-        });
+          })
+          .select('*')
+          .single();
+        if (createError) {
+          return res.status(500).json({ error: 'خطأ في إنشاء المواطن' });
+        }
+        complainant = newComplainant;
       }
 
       // Create complaint
-      const complaint = await prisma.complaint.create({
-        data: {
+      const { data: complaint, error: complaintError } = await supabase
+        .from('complaint')
+        .insert({
           complainantId: complainant.id,
           typeId,
           title,
           description,
           location: location || null,
           status: "NEW",
-        },
-        include: {
-          type: true,
-          complainant: true,
-        },
-      });
+        })
+        .select('*, type(*), complainant(*)')
+        .single();
+      if (complaintError) {
+        return res.status(500).json({ error: 'خطأ في إنشاء الشكوى' });
+      }
 
       // Handle file uploads
       if (req.files && req.files.length > 0) {

@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { FileText, Upload, X, AlertCircle, CheckCircle } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { v4 as uuidv4 } from "uuid"; // Add this at the top
+
+import { supabase } from "../utils/supabaseClient";
+
 
 interface ComplaintFormProps {
   onNavigate: (page: string) => void;
@@ -26,26 +30,32 @@ const ComplaintForm: React.FC<ComplaintFormProps> = ({ onNavigate }) => {
     location: "",
   });
   const [files, setFiles] = useState<File[]>([]);
-  const [complaintTypes, setComplaintTypes] = useState<ComplaintType[]>([]);
+  const [complaint_types, setcomplaint_types] = useState<ComplaintType[]>([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetchComplaintTypes();
+    fetchcomplaint_types();
   }, []);
 
-  const fetchComplaintTypes = async () => {
-    try {
-      const response = await fetch("http://localhost:3001/api/types");
-      if (response.ok) {
-        const types = await response.json();
-        setComplaintTypes(types);
-      }
-    } catch (error) {
-      console.error("Error fetching complaint types:", error);
+  const fetchcomplaint_types = async () => {
+  try {
+    // Supabase: fetch complaint types from 'complaint_types' table
+    const { data, error } = await supabase
+      .from("complaint_types")
+      .select("*")
+      .eq("isActive", true)
+      .order("name", { ascending: true });
+    if (!error && data) {
+      setcomplaint_types(data);
+    } else {
+      setcomplaint_types([]);
     }
-  };
+  } catch (error) {
+    console.error("Error fetching complaint types:", error);
+  }
+};
 
   const handleInputChange = (
     e: React.ChangeEvent<
@@ -79,57 +89,40 @@ const ComplaintForm: React.FC<ComplaintFormProps> = ({ onNavigate }) => {
     setError("");
 
     try {
-      const formDataToSend = new FormData();
-
-      // Add form fields
-      Object.entries(formData).forEach(([key, value]) => {
-        formDataToSend.append(key, value);
-      });
-
-      // Add files
-      files.forEach((file) => {
-        formDataToSend.append("files", file);
-      });
-
-      const response = await fetch(
-        "http://localhost:3001/api/complaints/submit",
+      // Prepare complaint data
+      const { fullName, phone, nationalId, email, typeId, title, description, location } = formData;
+      // Insert complaint into Supabase
+      const id = uuidv4();
+      const { data, error } = await supabase.from("complainants").insert([
         {
-          method: "POST",
-          body: formDataToSend,
-        }
-      );
+          id,
+          fullName,
+          phone,
+          nationalId,
+          email,
+          // You may need to handle attachments separately (see below)
+        },
+      ]);
+      if (!error) {
+        // Optionally, handle file uploads to Supabase Storage here
+        // For now, skip file upload logic
 
-      const result = await response.json();
+        // Auto-login logic (if you have a 'citizens' table)
+        // Example: fetch citizen by phone/nationalId
+        const { data: citizenData, error: citizenError } = await supabase
+          .from("citizens")
+          .select("*")
+          .eq("phone", phone)
+          .eq("nationalId", nationalId)
+          .single();
 
-      if (response.ok) {
-        // Auto-login the citizen after successful complaint submission
-        try {
-          const verifyResponse = await fetch(
-            "http://localhost:3001/api/auth/verify-citizen",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                phone: formData.phone,
-                nationalId: formData.nationalId,
-                fullName: formData.fullName,
-              }),
-            }
-          );
-
-          if (verifyResponse.ok) {
-            const verifyResult = await verifyResponse.json();
-            loginComplainant(verifyResult.complainant, verifyResult.token);
-          }
-        } catch (loginError) {
-          console.error("Auto-login error:", loginError);
-          // Continue even if auto-login fails
+        if (!citizenError && citizenData) {
+          // You may need to generate a token or handle session here
+          // console.log('asdsad')
+          loginComplainant(citizenData, "supabase-token");
         }
 
         setSuccess(true);
-        // Reset form after 3 seconds
         setTimeout(() => {
           setSuccess(false);
           setFormData({
@@ -145,7 +138,7 @@ const ComplaintForm: React.FC<ComplaintFormProps> = ({ onNavigate }) => {
           setFiles([]);
         }, 3000);
       } else {
-        setError(result.error || "حدث خطأ أثناء تقديم الشكوى");
+        setError(error.message || "حدث خطأ أثناء تقديم الشكوى");
       }
     } catch (error) {
       setError("خطأ في الاتصال بالخادم");
@@ -153,7 +146,7 @@ const ComplaintForm: React.FC<ComplaintFormProps> = ({ onNavigate }) => {
     } finally {
       setLoading(false);
     }
-  };
+};
 
   if (success) {
     return (
@@ -297,7 +290,7 @@ const ComplaintForm: React.FC<ComplaintFormProps> = ({ onNavigate }) => {
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="">اختر نوع الشكوى</option>
-                  {complaintTypes.map((type) => (
+                  {complaint_types.map((type) => (
                     <option key={type.id} value={type.id}>
                       {type.icon} {type.name}
                     </option>

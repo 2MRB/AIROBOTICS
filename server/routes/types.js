@@ -1,19 +1,25 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { PrismaClient } = require('@prisma/client');
+const { createClient } = require('@supabase/supabase-js');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const supabaseUrl = 'https://gcfeqklskmwbiwjkdouu.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdjZmVxa2xza213Yml3amtkb3V1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxMzA2NTQsImV4cCI6MjA3MDcwNjY1NH0.ZW9_4Xo9D5tK2mEHl2uMTdiCOUIUkuzp88YYAhFyr6Y';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Get all complaint types
 router.get('/', async (req, res) => {
   try {
-    const types = await prisma.complaintType.findMany({
-      where: { isActive: true },
-      orderBy: { name: 'asc' }
-    });
-
+    const { data: types, error } = await supabase
+      .from('complaintType')
+      .select('*')
+      .eq('isActive', true)
+      .order('name', { ascending: true });
+    if (error) {
+      console.error('Get types error:', error);
+      return res.status(500).json({ error: 'خطأ في جلب أنواع الشكاوى' });
+    }
     res.json(types);
   } catch (error) {
     console.error('Get types error:', error);
@@ -38,22 +44,29 @@ router.post('/', authenticateToken, requireRole(['ADMIN']), [
 
     const { name, description, icon } = req.body;
 
-    const existingType = await prisma.complaintType.findUnique({
-      where: { name }
-    });
-
+    const { data: existingType, error: findError } = await supabase
+      .from('complaintType')
+      .select('id')
+      .eq('name', name)
+      .single();
+    if (findError && findError.code !== 'PGRST116') {
+      return res.status(500).json({ error: 'خطأ في البحث عن نوع الشكوى' });
+    }
     if (existingType) {
       return res.status(400).json({ error: 'نوع الشكوى موجود بالفعل' });
     }
-
-    const type = await prisma.complaintType.create({
-      data: {
+    const { data: type, error: createError } = await supabase
+      .from('complaintType')
+      .insert({
         name,
         description: description || null,
-        icon: icon || null
-      }
-    });
-
+        icon: icon || null,
+      })
+      .select('*')
+      .single();
+    if (createError) {
+      return res.status(500).json({ error: 'خطأ في إنشاء نوع الشكوى' });
+    }
     res.status(201).json({
       success: true,
       type,
@@ -91,11 +104,15 @@ router.patch('/:id', authenticateToken, requireRole(['ADMIN']), [
       }
     });
 
-    const type = await prisma.complaintType.update({
-      where: { id: typeId },
-      data: updateData
-    });
-
+    const { data: type, error: updateError } = await supabase
+      .from('complaintType')
+      .update(updateData)
+      .eq('id', typeId)
+      .select('*')
+      .single();
+    if (updateError) {
+      return res.status(500).json({ error: 'خطأ في تحديث نوع الشكوى' });
+    }
     res.json({
       success: true,
       type,
@@ -116,20 +133,26 @@ router.delete('/:id', authenticateToken, requireRole(['ADMIN']), async (req, res
     const typeId = req.params.id;
 
     // Check if type has complaints
-    const complaintsCount = await prisma.complaint.count({
-      where: { typeId }
-    });
-
+    const { data: complaints, error: countError } = await supabase
+      .from('complaint')
+      .select('id', { count: 'exact', head: true })
+      .eq('typeId', typeId);
+    const complaintsCount = complaints?.length || 0;
+    if (countError) {
+      return res.status(500).json({ error: 'خطأ في التحقق من الشكاوى المرتبطة' });
+    }
     if (complaintsCount > 0) {
       return res.status(400).json({ 
         error: 'لا يمكن حذف نوع الشكوى لوجود شكاوى مرتبطة به' 
       });
     }
-
-    await prisma.complaintType.delete({
-      where: { id: typeId }
-    });
-
+    const { error: deleteError } = await supabase
+      .from('complaintType')
+      .delete()
+      .eq('id', typeId);
+    if (deleteError) {
+      return res.status(500).json({ error: 'خطأ في حذف نوع الشكوى' });
+    }
     res.json({
       success: true,
       message: 'تم حذف نوع الشكوى بنجاح'

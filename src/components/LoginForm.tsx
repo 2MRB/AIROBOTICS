@@ -1,92 +1,111 @@
 import React, { useState } from "react";
 import { LogIn, User, Phone, CreditCard, AlertCircle } from "lucide-react";
-import { useAuth } from "../contexts/AuthContext";
+import { supabase } from "../utils/supabaseClient";
 
 interface LoginFormProps {
   onNavigate: (page: string) => void;
 }
 
 const LoginForm: React.FC<LoginFormProps> = ({ onNavigate }) => {
-  const { login, loginComplainant } = useAuth();
   const [activeTab, setActiveTab] = useState<"citizen" | "staff">("staff");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Staff login form
   const [staffForm, setStaffForm] = useState({
     email: "",
     password: "",
   });
 
-  // Citizen verification form
   const [citizenForm, setCitizenForm] = useState({
     fullName: "",
     phone: "",
     nationalId: "",
   });
 
+  // Staff direct DB login
   const handleStaffLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
     try {
-      const response = await fetch("http://localhost:3001/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(staffForm),
-      });
+      // Just check if user exists in "users" table
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("email", staffForm.email)
+        .eq("password", staffForm.password) // plaintext check (not recommended in production)
+        .single();
 
-      const result = await response.json();
-
-      if (response.ok) {
-        login(result.user, result.token);
-        if (result.user.role === "ADMIN") {
-          onNavigate("admin-dashboard");
-        } else {
-          onNavigate("employee-dashboard");
-        }
-      } else {
-        setError(result.error || "خطأ في تسجيل الدخول");
+      if (userError || !userData) {
+        setError("لم يتم العثور على المستخدم أو كلمة المرور غير صحيحة");
+        setLoading(false);
+        return;
       }
-    } catch (error) {
+
+      // Navigate based on role
+      if (userData.role === "ADMIN") {
+        onNavigate("admin-dashboard");
+      } else {
+        onNavigate("employee-dashboard");
+      }
+    } catch (err) {
+      console.error("Login error:", err);
       setError("خطأ في الاتصال بالخادم");
-      console.error("Login error:", error);
     } finally {
       setLoading(false);
     }
   };
 
+  // Citizen verification (direct DB)
   const handleCitizenVerification = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
     try {
-      const response = await fetch(
-        "http://localhost:3001/api/auth/verify-citizen",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(citizenForm),
-        }
-      );
+      const { data: citizen, error: citizenError } = await supabase
+        .from("citizens")
+        .select("*")
+        .eq("national_id", citizenForm.nationalId)
+        .eq("phone", citizenForm.phone)
+        .eq("full_name", citizenForm.fullName)
+        .single();
 
-      const result = await response.json();
-
-      if (response.ok) {
-        loginComplainant(result.complainant, result.token);
-        onNavigate("citizen-dashboard");
-      } else {
-        setError(result.error || "خطأ في التحقق");
+      if (citizenError && citizenError.code !== "PGRST116") {
+        setError("خطأ أثناء التحقق من البيانات");
+        setLoading(false);
+        return;
       }
-    } catch (error) {
+
+      let complainant = citizen;
+
+      if (!citizen) {
+        const { data: newCitizen, error: insertError } = await supabase
+          .from("citizens")
+          .insert([
+            {
+              full_name: citizenForm.fullName,
+              phone: citizenForm.phone,
+              national_id: citizenForm.nationalId,
+            },
+          ])
+          .select()
+          .single();
+
+        if (insertError || !newCitizen) {
+          setError(insertError?.message || "خطأ في إنشاء الحساب");
+          setLoading(false);
+          return;
+        }
+        complainant = newCitizen;
+      }
+
+      // Go directly to citizen dashboard
+      onNavigate("citizen-dashboard");
+    } catch (err) {
+      console.error("Verification error:", err);
       setError("خطأ في الاتصال بالخادم");
-      console.error("Verification error:", error);
     } finally {
       setLoading(false);
     }
@@ -96,14 +115,12 @@ const LoginForm: React.FC<LoginFormProps> = ({ onNavigate }) => {
     <div className="min-h-screen bg-gray-50 py-12">
       <div className="max-w-md mx-auto px-4 sm:px-6 lg:px-8">
         <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-          {/* Header */}
           <div className="bg-blue-600 text-white p-6 text-center">
             <LogIn className="w-12 h-12 mx-auto mb-4" />
             <h1 className="text-2xl font-bold">تسجيل الدخول</h1>
             <p className="text-blue-100 mt-2">اختر نوع الحساب للدخول للنظام</p>
           </div>
 
-          {/* Tabs */}
           <div className="flex">
             <button
               onClick={() => setActiveTab("staff")}
@@ -138,7 +155,6 @@ const LoginForm: React.FC<LoginFormProps> = ({ onNavigate }) => {
             )}
 
             {activeTab === "staff" ? (
-              /* Staff Login Form */
               <form onSubmit={handleStaffLogin} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -185,15 +201,8 @@ const LoginForm: React.FC<LoginFormProps> = ({ onNavigate }) => {
                 >
                   {loading ? "جاري تسجيل الدخول..." : "تسجيل الدخول"}
                 </button>
-
-                <div className="text-center mt-4">
-                  <p className="text-sm text-gray-600">
-                    للتجربة: emanhassanmahmoud1@gmail.com / Emovmmm#951753
-                  </p>
-                </div>
               </form>
             ) : (
-              /* Citizen Verification Form */
               <form onSubmit={handleCitizenVerification} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -263,15 +272,6 @@ const LoginForm: React.FC<LoginFormProps> = ({ onNavigate }) => {
                 >
                   {loading ? "جاري التحقق..." : "تسجيل الدخول"}
                 </button>
-
-                <div className="text-center mt-4">
-                  <p className="text-sm text-gray-600">
-                    للتجربة: أحمد الأمير / 30201452369852 / 01236528471
-                  </p>
-                  <p className="text-xs text-gray-500 mt-2">
-                    * سيتم التحقق من بياناتك وإنشاء حساب إذا لم يكن موجوداً
-                  </p>
-                </div>
               </form>
             )}
 

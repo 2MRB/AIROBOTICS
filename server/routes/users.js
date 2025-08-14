@@ -150,20 +150,15 @@ router.patch(
         }
       });
 
-      const user = await prisma.user.update({
-        where: { id: userId },
-        data: updateData,
-        select: {
-          id: true,
-          email: true,
-          phone: true,
-          nationalId: true,
-          fullName: true,
-          role: true,
-          isActive: true,
-          createdAt: true,
-        },
-      });
+          const { data: user, error: updateError } = await supabase
+            .from('user')
+            .update(updateData)
+            .eq('id', userId)
+            .select('id, email, phone, nationalId, fullName, role, isActive, createdAt')
+            .single();
+          if (updateError) {
+            return res.status(500).json({ error: "خطأ في تحديث المستخدم" });
+          }
 
       res.json({
         success: true,
