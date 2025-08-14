@@ -376,7 +376,7 @@ const AdminDashboard: React.FC = () => {
                       إجمالي الشكاوى
                     </p>
                     <p className="text-2xl font-bold text-gray-900">
-                      {stats.totalcomplainants}
+                      {activeTab === "overview" ? complainants.length : stats.totalcomplainants}
                     </p>
                   </div>
                 </div>
@@ -390,7 +390,9 @@ const AdminDashboard: React.FC = () => {
                   <div className="mr-4">
                     <p className="text-sm font-medium text-gray-600">تم حلها</p>
                     <p className="text-2xl font-bold text-gray-900">
-                      {stats.resolvedcomplainants}
+                      {activeTab === "overview"
+                        ? complainants.filter(c => c.status === "RESOLVED").length
+                        : stats.resolvedcomplainants}
                     </p>
                   </div>
                 </div>
@@ -406,7 +408,9 @@ const AdminDashboard: React.FC = () => {
                       قيد المعالجة
                     </p>
                     <p className="text-2xl font-bold text-gray-900">
-                      {stats.inProgresscomplainants}
+                      {activeTab === "overview"
+                        ? complainants.filter(c => c.status === "IN_PROGRESS" || c.status === "UNDER_REVIEW").length
+                        : stats.inProgresscomplainants}
                     </p>
                   </div>
                 </div>
@@ -420,7 +424,9 @@ const AdminDashboard: React.FC = () => {
                   <div className="mr-4">
                     <p className="text-sm font-medium text-gray-600">متأخرة</p>
                     <p className="text-2xl font-bold text-gray-900">
-                      {stats.overduecomplainants}
+                      {activeTab === "overview"
+                        ? complainants.filter(c => c.status === "OVERDUE").length
+                        : stats.overduecomplainants}
                     </p>
                   </div>
                 </div>
